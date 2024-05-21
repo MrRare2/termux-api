@@ -158,7 +158,6 @@ public class BTAPI {
 
                 if (bluetoothAdapter == null) {
                   out.beginObject().name("API_ERROR").value("Device does not support Bluetooth").endObject();
-                  return;
                 }
 
                 if (bluetoothAdapter.isDiscovering()){
@@ -168,7 +167,6 @@ public class BTAPI {
                 if (!bluetoothAdapter.isEnabled()) {
                     if (Build.VERSION.SDK_INT >= 33) {
                         out.beginObject().name("API_ERROR").value("Enable bluetooth to connect to a device").endObject(); // we can't use the prompt to enable bluetooth because the user may cancel it
-                        return;
                     } else {
                         bluetoothAdapter.enable();
                     }
@@ -180,7 +178,6 @@ public class BTAPI {
 
                 if (device == null) {
                     out.beginObject().name("API_ERROR").value("no device with MAC address" + deviceAddress).endObject();
-                    return;
                 }
 
 
