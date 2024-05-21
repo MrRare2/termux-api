@@ -91,11 +91,14 @@ public class TermuxApiReceiver extends BroadcastReceiver {
             case "BatteryStatus":
                 BatteryStatusAPI.onReceive(this, context, intent);
                 break;
-            case "BluetoothEnable":
-                BTAPI.onReceiveBTEnable(this, context, intent);
+            case "BluetoothConnect":
+                BTAPI.onReceiveBTConnect(this, context, intent);
                 break;
             case "BluetoothConnectionInfo":
                 BTAPI.onReceiveBTConnectionInfo(this, context, intent);
+                break;
+            case "BluetoothEnable":
+                BTAPI.onReceiveBTEnable(this, context, intent);
                 break;
             case "BluetoothScanInfo":
                 BTAPI.onReceiveBTScanInfo(context, intent);
