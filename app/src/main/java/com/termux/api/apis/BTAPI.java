@@ -157,7 +157,7 @@ public class BTAPI {
             public void writeJson(JsonWriter out) throws IOException {
                 BluetoothManager manager = (BluetoothManager) context.getApplicationContext().getSystemService(Context.BLUETOOTH_SERVICE);
                 final BluetoothAdapter bluetoothAdapter = manager.getAdapter();
-                BluetoothDevice device;;
+                BluetoothDevice device = null;
 
                 if (bluetoothAdapter == null) {
                   out.beginObject().name("API_ERROR").value("Device does not support Bluetooth").endObject();
