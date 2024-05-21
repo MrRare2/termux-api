@@ -186,7 +186,7 @@ public class BTAPI {
 
                 BluetoothSocket socket = device.createRfcommSocketToServiceRecord(device.getUuids()[0].getUuid());
 
-                if (!device.getBondState() == BluetoothDevice.BOND_BONDED) {
+                if (device.getBondState() == BluetoothDevice.BOND_BONDED) {
                     device.createBond();
                 }
                 socket.connect();
