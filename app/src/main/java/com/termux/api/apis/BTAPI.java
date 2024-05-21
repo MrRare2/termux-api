@@ -178,7 +178,7 @@ public class BTAPI {
                 String deviceAddress = intent.getStringExtra("addr");
 
                 try {
-                    BluetoothDevice device = bluetoothAdapter.getRemoteDevice(deviceAddress);
+                    device = bluetoothAdapter.getRemoteDevice(deviceAddress);
                 } catch (IllegalArgumentException e) {
                     out.beginObject().name("API_ERROR").value(deviceAddress + " is not a valid Bluetooth address").endObject();
                 }
