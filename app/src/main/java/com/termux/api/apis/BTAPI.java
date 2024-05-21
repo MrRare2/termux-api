@@ -16,6 +16,7 @@ import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.IBinder;
+import android.os.ParcelUuid;
 import android.util.JsonWriter;
 
 import androidx.annotation.Nullable;
@@ -28,6 +29,7 @@ import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
+import java.util.UUID;
 
 public class BTAPI {
 
@@ -174,19 +176,41 @@ public class BTAPI {
 
                 String deviceAddress = intent.getStringExtra("addr");
 
-                BluetoothDevice device = bluetoothAdapter.getRemoteDevice(deviceAddress);
+                try {
+                    BluetoothDevice device = bluetoothAdapter.getRemoteDevice(deviceAddress);
+                } catch (InvalidArgumentException e) {
+                    out.beginObject().name("API_ERROR").value(deviceAddress + " is not a valid Bluetooth address").endObject();
+                }
 
                 if (device == null) {
-                    out.beginObject().name("API_ERROR").value("no device with MAC address" + deviceAddress).endObject();
+                    out.beginObject().name("API_ERROR").value(deviceAddress + " does not exist").endObject();
+                } else {
+                    ParcelUuid[] uuids = device.getUuids();
+                    UUID uuid;
+                    List <BluetoothSocket> sockets = new ArrayList<>();
+
+                    if (uuids != null) {
+                        for (ParcelUuid uuid_ : uuids) {
+                            uuid = uuid_;
+                            BluetoothSocket socket = device.createRfcommSocketToServiceRecord(uuid);
+                            if (socket != null) {
+                                sockets.add(socket);
+                            }
+                        }
+                    }
+                      
+                    if (device.getBondState() == BluetoothDevice.BOND_BONDED) {
+                        device.createBond();
+                    }
+
+                    for (BluetoothSocket socket : sockets) {
+                        try {
+                            socket.connect();
+                        } catch (IOException e) {
+                            Logger.logStackTraceWithMessage(LOG_TAG, "Error posting result", e);
+                        }
+                    }
                 }
-
-
-                BluetoothSocket socket = device.createRfcommSocketToServiceRecord(device.getUuids()[0].getUuid());
-
-                if (device.getBondState() == BluetoothDevice.BOND_BONDED) {
-                    device.createBond();
-                }
-                socket.connect();
             }
         });
     }
