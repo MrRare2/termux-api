@@ -10,6 +10,7 @@ import android.widget.Toast;
 
 import com.termux.api.apis.AudioAPI;
 import com.termux.api.apis.BatteryStatusAPI;
+import com.termux.api.apis.BTAPI;
 import com.termux.api.apis.BrightnessAPI;
 import com.termux.api.apis.CallLogAPI;
 import com.termux.api.apis.CameraInfoAPI;
@@ -89,6 +90,18 @@ public class TermuxApiReceiver extends BroadcastReceiver {
                 break;
             case "BatteryStatus":
                 BatteryStatusAPI.onReceive(this, context, intent);
+                break;
+            case "BluetoothEnable":
+                BTAPI.onReceiveBTEnable(this, context, intent);
+                break;
+            case "BluetoothConnectionInfo":
+                BTAPI.onReceiveBTConnectionInfo(this, context, intent);
+                break;
+            case "BluetoothScanInfo":
+                BTAPI.onReceiveBTScanInfo(context, intent);
+                break;
+            case "BluetoothListPairedDevicesInfo":
+                BTAPI.onReceiveBTListPairedDevicesInfo(this, context, intent);
                 break;
             case "Brightness":
                 if (!Settings.System.canWrite(context)) {

@@ -114,6 +114,5 @@ public class BatteryStatusAPI {
                 out.endObject();
             }
         });
-
     }
 }

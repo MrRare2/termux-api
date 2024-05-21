@@ -3,9 +3,6 @@
     xmlns:tools="http://schemas.android.com/tools"
     package="com.termux.api"
     android:sharedUserId="${TERMUX_PACKAGE_NAME}">
-
-
-
     <uses-permission android:name="android.permission.ACCESS_BACKGROUND_LOCATION" />
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
@@ -36,7 +33,10 @@
     <uses-permission android:name="android.permission.VIBRATE" />
     <uses-permission android:name="android.permission.WRITE_SETTINGS" tools:ignore="ProtectedPermissions" />
     <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" />
-
+    <uses-permission android:name="android.permission.BLUETOOTH"/>
+    <uses-permission android:name="android.permission.BLUETOOTH_ADMIN"/>
+    <uses-permission android:name="android.permission.BLUETOOTH_CONNECT"/>
+    <uses-permission android:name="android.permission.BLUETOOTH_SCAN"/>
     <!-- This permission is not used, but a permission is needed on the sharedfiles contentprovider,
          which will always use FLAG_GRANT_READ_URI_PERMISSION. -->
     <permission android:name="${TERMUX_PACKAGE_NAME}.sharedfiles.READ_WRITE" android:protectionLevel="signature" />
@@ -55,8 +55,8 @@
     <uses-feature android:name="android.hardware.touchscreen" android:required="false" />
     <uses-feature android:name="android.hardware.wifi" android:required="false" />
     <uses-feature android:name="android.hardware.usb.host" android:required="false" />
-
-
+    <uses-feature android:name="android.hardware.bluetooth" android:required="false" />
+    <uses-feature android:name="android.hardware.bluetooth_le" android:required="false" />
 
     <application
         android:name=".TermuxAPIApplication"
@@ -81,7 +81,7 @@
             android:theme="@android:style/Theme.NoDisplay"
             android:noHistory="true"
             android:excludeFromRecents="true"
-            android:exported="false" />
+          android:exported="false" />
 
         <activity android:name=".apis.DialogAPI$DialogActivity"
             android:theme="@style/DialogTheme"
@@ -151,14 +151,15 @@
             android:exported="false"
             tools:ignore="MissingClass" />
 
-
-
-
         <service
             android:name=".KeepAliveService"
             android:description="@string/keep_alive_service"
             android:enabled="true"
-            android:exported="false" />
+          android:exported="false" />
+
+        <service
+          android:name=".apis.BTAPI$BTScanService"
+          android:exported="false" />
 
         <service
             android:name=".apis.JobSchedulerAPI$JobSchedulerService"
@@ -192,7 +193,7 @@
             android:exported="false" />
 
         <service android:name=".apis.WallpaperAPI$WallpaperService"
-            android:exported="false" />
+          android:exported="false" />
 
     </application>
 
