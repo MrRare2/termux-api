@@ -157,6 +157,7 @@ public class BTAPI {
             public void writeJson(JsonWriter out) throws IOException {
                 BluetoothManager manager = (BluetoothManager) context.getApplicationContext().getSystemService(Context.BLUETOOTH_SERVICE);
                 final BluetoothAdapter bluetoothAdapter = manager.getAdapter();
+                BluetoothDevice device;;
 
                 if (bluetoothAdapter == null) {
                   out.beginObject().name("API_ERROR").value("Device does not support Bluetooth").endObject();
@@ -178,7 +179,7 @@ public class BTAPI {
 
                 try {
                     BluetoothDevice device = bluetoothAdapter.getRemoteDevice(deviceAddress);
-                } catch (InvalidArgumentException e) {
+                } catch (IllegalArgumentException e) {
                     out.beginObject().name("API_ERROR").value(deviceAddress + " is not a valid Bluetooth address").endObject();
                 }
 
@@ -186,12 +187,11 @@ public class BTAPI {
                     out.beginObject().name("API_ERROR").value(deviceAddress + " does not exist").endObject();
                 } else {
                     ParcelUuid[] uuids = device.getUuids();
-                    UUID uuid;
                     List <BluetoothSocket> sockets = new ArrayList<>();
 
                     if (uuids != null) {
                         for (ParcelUuid uuid_ : uuids) {
-                            uuid = uuid_;
+                            UUID uuid = uuid_.getUuid();
                             BluetoothSocket socket = device.createRfcommSocketToServiceRecord(uuid);
                             if (socket != null) {
                                 sockets.add(socket);
