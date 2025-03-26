@@ -11,7 +11,6 @@ import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
-
 import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
@@ -26,20 +25,27 @@ import com.termux.api.util.ResultReturner;
 import com.termux.shared.logger.Logger;
 
 import java.io.IOException;
+import java.lang.reflect.Method;
 import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Map; 
 import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 
 public class BTAPI {
 
     private static final String LOG_TAG = "BTAPI";
-    static List < BluetoothDevice > devices = new ArrayList<>();
+    // A global list for scan service devices (cleared on each scan)
+    static List<BluetoothDevice> scannedDevices = new ArrayList<>();
 
     public static String getDeviceType(BluetoothDevice device) {
-        BluetoothClass bluetoothClass = device.getBluetoothClass();
-        if (bluetoothClass != null) {
-            switch (bluetoothClass.getMajorDeviceClass()) {
+        BluetoothClass btClass = device.getBluetoothClass();
+        if (btClass != null) {
+            switch (btClass.getMajorDeviceClass()) {
                 case BluetoothClass.Device.Major.AUDIO_VIDEO:
                     return "av_device";
                 case BluetoothClass.Device.Major.COMPUTER:
@@ -51,7 +57,7 @@ public class BTAPI {
                 case BluetoothClass.Device.Major.NETWORKING:
                     return "networking";
                 case BluetoothClass.Device.Major.PERIPHERAL:
-                    switch (bluetoothClass.getDeviceClass()) {
+                    switch (btClass.getDeviceClass()) {
                         case BluetoothClass.Device.COMPUTER_DESKTOP:
                             return "computer_desktop";
                         case BluetoothClass.Device.COMPUTER_LAPTOP:
@@ -75,13 +81,71 @@ public class BTAPI {
                         case BluetoothClass.Device.AUDIO_VIDEO_UNCATEGORIZED:
                             return "av_device";
                         default:
-                            return "peripheral_device_" + String.valueOf(bluetoothClass.getDeviceClass());
+                            return "peripheral_device_" + btClass.getDeviceClass();
                     }
                 default:
-                    return "unknown_device_" + String.valueOf(bluetoothClass.getMajorDeviceClass());
+                    return "unknown_device_" + btClass.getMajorDeviceClass();
             }
         }
         return "unknown";
+    }
+
+    /**
+     * Attempts to retrieve the battery level of a device via reflection.
+     * Returns a non-negative integer if available; otherwise -1.
+     */
+    public static int getBatteryLevel(BluetoothDevice device) {
+        try {
+            Method method = device.getClass().getMethod("getBatteryLevel");
+            Object result = method.invoke(device);
+            if (result instanceof Integer) {
+                return (Integer) result;
+            }
+        } catch (Exception e) {
+            // Battery info not supported or accessible
+        }
+        return -1;
+    }
+
+    /**
+     * Uses known profiles (A2DP, HEADSET, GATT) to determine which profiles the given
+     * connected device belongs to. This implementation uses asynchronous callbacks but
+     * waits synchronously (with timeout) to gather results.
+     */
+    public static List<String> getDeviceProfiles(final BluetoothDevice targetDevice, final Context context) {
+        final List<String> profiles = new ArrayList<>();
+        final BluetoothAdapter adapter = BluetoothAdapter.getDefaultAdapter();
+        final int[] profileTypes = {BluetoothProfile.A2DP, BluetoothProfile.HEADSET, BluetoothProfile.GATT};
+        final Map<Integer, String> profileNames = new HashMap<>();
+        profileNames.put(BluetoothProfile.A2DP, "A2DP");
+        profileNames.put(BluetoothProfile.HEADSET, "HEADSET");
+        profileNames.put(BluetoothProfile.GATT, "GATT");
+
+        final CountDownLatch latch = new CountDownLatch(profileTypes.length);
+        for (final int profileType : profileTypes) {
+            adapter.getProfileProxy(context, new BluetoothProfile.ServiceListener() {
+                @Override
+                public void onServiceConnected(int profile, BluetoothProfile proxy) {
+                    List<BluetoothDevice> connectedDevices = proxy.getConnectedDevices();
+                    if (connectedDevices != null && connectedDevices.contains(targetDevice)) {
+                        profiles.add(profileNames.get(profileType));
+                    }
+                    adapter.closeProfileProxy(profile, proxy);
+                    latch.countDown();
+                }
+
+                @Override
+                public void onServiceDisconnected(int profile) {
+                    latch.countDown();
+                }
+            }, profileType);
+        }
+        try {
+            latch.await(2, TimeUnit.SECONDS);
+        } catch (InterruptedException e) {
+            // Ignore interruption; proceed with what we have.
+        }
+        return profiles;
     }
 
     public static class BTScanService extends Service {
@@ -90,19 +154,16 @@ public class BTAPI {
         private BluetoothAdapter bluetoothAdapter;
         private int waitTime = 12000;
 
+        @Override
         public int onStartCommand(Intent intent, int flags, int startId) {
             Logger.logDebug(LOG_TAG, "onStartCommand");
-
             if (intent != null && intent.hasExtra("wt")) {
                 waitTime = intent.getIntExtra("wt", 12000);
             }
-
-            devices.clear();
-
+            scannedDevices.clear();
             bluetoothAdapter = BluetoothAdapter.getDefaultAdapter();
             registerReceiver();
             startDiscovery();
-
             return Service.START_STICKY;
         }
 
@@ -111,8 +172,8 @@ public class BTAPI {
                 @Override
                 public void onReceive(Context context, Intent intent) {
                     BluetoothDevice device = intent.getParcelableExtra(BluetoothDevice.EXTRA_DEVICE);
-                    if (device != null) {
-                        devices.add(device);
+                    if (device != null && !scannedDevices.contains(device)) {
+                        scannedDevices.add(device);
                     }
                 }
             };
@@ -144,6 +205,7 @@ public class BTAPI {
             super.onDestroy();
         }
 
+        @Nullable
         @Override
         public IBinder onBind(Intent intent) {
             return null;
@@ -157,38 +219,34 @@ public class BTAPI {
             public void writeJson(JsonWriter out) throws IOException {
                 BluetoothManager manager = (BluetoothManager) context.getApplicationContext().getSystemService(Context.BLUETOOTH_SERVICE);
                 final BluetoothAdapter bluetoothAdapter = manager.getAdapter();
-                BluetoothDevice device = null;
-
                 if (bluetoothAdapter == null) {
-                  out.beginObject().name("API_ERROR").value("Device does not support Bluetooth").endObject();
+                    out.beginObject().name("API_ERROR").value("Device does not support Bluetooth").endObject();
+                    return;
                 }
-
                 if (bluetoothAdapter.isDiscovering()){
                     bluetoothAdapter.cancelDiscovery();
                 }
-
                 if (!bluetoothAdapter.isEnabled()) {
                     if (Build.VERSION.SDK_INT >= 33) {
-                        out.beginObject().name("API_ERROR").value("Enable bluetooth to connect to a device").endObject(); // we can't use the prompt to enable bluetooth because the user may cancel it
+                        out.beginObject().name("API_ERROR").value("Enable Bluetooth to connect to a device").endObject();
+                        return;
                     } else {
                         bluetoothAdapter.enable();
                     }
                 }
-
                 String deviceAddress = intent.getStringExtra("addr");
-
+                BluetoothDevice device = null;
                 try {
                     device = bluetoothAdapter.getRemoteDevice(deviceAddress);
                 } catch (IllegalArgumentException e) {
                     out.beginObject().name("API_ERROR").value(deviceAddress + " is not a valid Bluetooth address").endObject();
+                    return;
                 }
-
                 if (device == null) {
                     out.beginObject().name("API_ERROR").value(deviceAddress + " does not exist").endObject();
                 } else {
                     ParcelUuid[] uuids = device.getUuids();
-                    List <BluetoothSocket> sockets = new ArrayList<>();
-
+                    List<BluetoothSocket> sockets = new ArrayList<>();
                     if (uuids != null) {
                         for (ParcelUuid uuid_ : uuids) {
                             UUID uuid = uuid_.getUuid();
@@ -198,11 +256,10 @@ public class BTAPI {
                             }
                         }
                     }
-                      
-                    if (device.getBondState() == BluetoothDevice.BOND_BONDED) {
+                    // Attempt bond if not already bonded.
+                    if (device.getBondState() != BluetoothDevice.BOND_BONDED) {
                         device.createBond();
                     }
-
                     for (BluetoothSocket socket : sockets) {
                         try {
                             socket.connect();
@@ -222,9 +279,7 @@ public class BTAPI {
             public void writeJson(JsonWriter out) throws Exception {
                 BluetoothManager manager = (BluetoothManager) context.getApplicationContext().getSystemService(Context.BLUETOOTH_SERVICE);
                 final BluetoothAdapter bluetoothAdapter = manager.getAdapter();
-
                 int waitTime = intent.getIntExtra("wt", 12000);
-
                 if (bluetoothAdapter == null) {
                     out.beginObject().name("API_ERROR").value("Device does not support Bluetooth").endObject();
                 } else {
@@ -234,7 +289,6 @@ public class BTAPI {
                         if (extras != null) {
                             newIntent.putExtras(extras);
                         }
-
                         context.startService(newIntent);
                         try {
                             Thread.sleep(waitTime);
@@ -242,12 +296,18 @@ public class BTAPI {
                             Logger.logStackTraceWithMessage(LOG_TAG, "Error posting result", e);
                         }
                         out.beginArray();
-                        for (BluetoothDevice device: devices) {
+                        for (BluetoothDevice device: scannedDevices) {
                             out.beginObject();
                             out.name("name").value(device.getName());
                             out.name("address").value(device.getAddress());
                             out.name("alias").value(device.getAlias());
                             out.name("device_type").value(getDeviceType(device));
+                            int battery = getBatteryLevel(device);
+                            if (battery >= 0) {
+                                out.name("battery").value(battery);
+                            }
+                            // Profiles not available for scanned (non-connected) devices
+                            out.name("profiles").beginArray().endArray();
                             out.endObject();
                         }
                         out.endArray();
@@ -266,35 +326,62 @@ public class BTAPI {
             public void writeJson(JsonWriter out) throws IOException {
                 BluetoothManager manager = (BluetoothManager) context.getApplicationContext().getSystemService(Context.BLUETOOTH_SERVICE);
                 final BluetoothAdapter bluetoothAdapter = manager.getAdapter();
-                List < BluetoothDevice > connectedDevices = new ArrayList < > ();
                 if (bluetoothAdapter == null) {
                     out.beginObject().name("API_ERROR").value("Device does not support Bluetooth").endObject();
+                    return;
                 }
-
-                for (int profile: new int[] {
-                        BluetoothProfile.A2DP, BluetoothProfile.HEADSET, BluetoothProfile.GATT
-                    }) {
+                // Use a map to store profiles for each connected device.
+                final Map<BluetoothDevice, Set<String>> deviceProfileMap = new HashMap<>();
+                final int[] profileTypes = {BluetoothProfile.A2DP, BluetoothProfile.HEADSET, BluetoothProfile.GATT};
+                final Map<Integer, String> profileNames = new HashMap<>();
+                profileNames.put(BluetoothProfile.A2DP, "A2DP");
+                profileNames.put(BluetoothProfile.HEADSET, "HEADSET");
+                profileNames.put(BluetoothProfile.GATT, "GATT");
+                final CountDownLatch latch = new CountDownLatch(profileTypes.length);
+                for (final int profileType : profileTypes) {
                     bluetoothAdapter.getProfileProxy(context, new BluetoothProfile.ServiceListener() {
                         @Override
                         public void onServiceConnected(int profile, BluetoothProfile proxy) {
-                            List < BluetoothDevice > devices = proxy.getConnectedDevices();
-                            connectedDevices.addAll(devices);
+                            List<BluetoothDevice> connectedDevices = proxy.getConnectedDevices();
+                            if (connectedDevices != null) {
+                                for (BluetoothDevice device : connectedDevices) {
+                                    if (!deviceProfileMap.containsKey(device)) {
+                                        deviceProfileMap.put(device, new HashSet<String>());
+                                    }
+                                    deviceProfileMap.get(device).add(profileNames.get(profileType));
+                                }
+                            }
+                            bluetoothAdapter.closeProfileProxy(profileType, proxy);
+                            latch.countDown();
                         }
-
                         @Override
                         public void onServiceDisconnected(int profile) {
-
+                            latch.countDown();
                         }
-                    }, profile);
+                    }, profileType);
                 }
-
+                try {
+                    latch.await(2, TimeUnit.SECONDS);
+                } catch (InterruptedException e) {
+                    // Proceed with what we have.
+                }
                 out.beginArray();
-                for (BluetoothDevice device: connectedDevices) {
+                for (Map.Entry<BluetoothDevice, Set<String>> entry : deviceProfileMap.entrySet()) {
+                    BluetoothDevice device = entry.getKey();
                     out.beginObject();
                     out.name("name").value(device.getName());
                     out.name("address").value(device.getAddress());
                     out.name("alias").value(device.getAlias());
                     out.name("device_type").value(getDeviceType(device));
+                    int battery = getBatteryLevel(device);
+                    if (battery >= 0) {
+                        out.name("battery").value(battery);
+                    }
+                    out.name("profiles").beginArray();
+                    for (String prof : entry.getValue()) {
+                        out.value(prof);
+                    }
+                    out.endArray();
                     out.endObject();
                 }
                 out.endArray();
@@ -311,23 +398,29 @@ public class BTAPI {
                 final BluetoothAdapter bluetoothAdapter = manager.getAdapter();
                 if (bluetoothAdapter == null) {
                     out.beginObject().name("API_ERROR").value("Device does not support Bluetooth").endObject();
+                    return;
                 }
-
                 if (!bluetoothAdapter.isEnabled()) {
                     out.beginObject().name("API_ERROR").value("Bluetooth needs to be enabled on this device").endObject();
-                } else {
-                    Set < BluetoothDevice > pairedDevices = bluetoothAdapter.getBondedDevices();
-                    out.beginArray();
-                    for (BluetoothDevice device: pairedDevices) {
-                        out.beginObject();
-                        out.name("name").value(device.getName());
-                        out.name("address").value(device.getAddress());
-                        out.name("alias").value(device.getAlias());
-                        out.name("device_type").value(getDeviceType(device));
-                        out.endObject();
-                    }
-                    out.endArray();
+                    return;
                 }
+                Set<BluetoothDevice> pairedDevices = bluetoothAdapter.getBondedDevices();
+                out.beginArray();
+                for (BluetoothDevice device : pairedDevices) {
+                    out.beginObject();
+                    out.name("name").value(device.getName());
+                    out.name("address").value(device.getAddress());
+                    out.name("alias").value(device.getAlias());
+                    out.name("device_type").value(getDeviceType(device));
+                    int battery = getBatteryLevel(device);
+                    if (battery >= 0) {
+                        out.name("battery").value(battery);
+                    }
+                    // For paired devices, profiles info is not readily available so we leave it empty.
+                    out.name("profiles").beginArray().endArray();
+                    out.endObject();
+                }
+                out.endArray();
             }
         });
     }
@@ -340,9 +433,9 @@ public class BTAPI {
             public void writeJson(JsonWriter out) throws IOException {
                 BluetoothManager manager = (BluetoothManager) context.getApplicationContext().getSystemService(Context.BLUETOOTH_SERVICE);
                 final BluetoothAdapter bluetoothAdapter = manager.getAdapter();
-
                 if (bluetoothAdapter == null) {
                     out.beginObject().name("API_ERROR").value("Device does not support Bluetooth").endObject();
+                    return;
                 }
                 if (Build.VERSION.SDK_INT >= 33) {
                     if (enabled) {
@@ -355,7 +448,7 @@ public class BTAPI {
                         Intent intent = new Intent(BluetoothAdapter.ACTION_REQUEST_ENABLE);
                         context.startActivity(intent);
                     } else {
-                        // TODO: no possible way to disable bluetooth on Android 13+ (https://developer.android.com/reference/android/bluetooth/BluetoothAdapter#disable() deprecation on API level 33)
+                        // No supported method to disable Bluetooth on Android 13+ via prompt
                     }
                 }
             }
