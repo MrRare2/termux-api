@@ -71,7 +71,7 @@ public class TorchAPI {
                         @Override  
                         public void writeJson(JsonWriter out) throws Exception {  
                             out.beginObject();  
-                            out.name("error").value("ID " + reqId + " do not support torch");  
+                            out.name("error").value("ID " + reqId + " does not support torch");  
                             out.endObject();  
                             out.flush();  
                             out.close();  
