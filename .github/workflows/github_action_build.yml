@@ -3,10 +3,10 @@ name: GitHub Action Build
 on:
   push:
     branches:
-      - master
+      - '**'
   pull_request:
     branches:
-      - master
+      - '**'
   schedule:
     - cron: "15 0 1 */2 *"
   workflow_dispatch:
