@@ -1,5 +1,9 @@
 # Termux API
 
+## NOTE
+
+This is a merger branch that is seperate to the `master` so I can merge all my changes across different branches into a single branch with the support for building the APK. ~~then dummy pull requesting to the `master` branch so it will run the CI build for testing~~. **Do not pull request back to the main termux-api, if done accidentally, close the PR**
+
 [![Build status](https://github.com/termux/termux-api/workflows/Build/badge.svg)](https://github.com/termux/termux-api/actions)
 [![Join the chat at https://gitter.im/termux/termux](https://badges.gitter.im/termux/termux.svg)](https://gitter.im/termux/termux)
 
